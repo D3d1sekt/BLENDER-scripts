@@ -17,6 +17,7 @@ Origin кожного об'єкта стоїть точно там, де пот�
 import math
 import os
 import sys
+import tempfile
 
 import bmesh
 import bpy
@@ -70,7 +71,7 @@ UV_SCALE = 0.5                # box-проєкція UV: 1 тайл тексту
 CLEAR_SCENE = True
 AUTO_EXPORT = True
 EXPORT_FILENAME = "sao_maze_traps.fbx"
-EXPORT_DIR = ""               # "" → поруч із .blend / скриптом / поточна тека
+EXPORT_DIR = ""               # "" → поруч із .blend / скриптом, інакше ~/Documents
 
 # --- Матеріали (Principled BSDF) ---------------------------------------------
 MATERIALS = {
@@ -821,18 +822,62 @@ def script_args():
     return sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
 
 
+def is_writable_dir(folder):
+    """Реальна перевірка запису (os.access у Windows не бачить обмежень UAC)."""
+    if not folder or not os.path.isdir(folder):
+        return False
+    try:
+        with tempfile.TemporaryFile(dir=folder):
+            pass
+        return True
+    except OSError:
+        return False
+
+
+def script_dir():
+    """Тека скрипта: файл на диску або текст, відкритий у Text Editor."""
+    script = globals().get("__file__", "")
+    if script and os.path.isfile(script):
+        return os.path.dirname(os.path.abspath(script))
+    base = os.path.basename(script.replace("\\", "/")).strip()
+    for text in bpy.data.texts:
+        if text.filepath and (text.name == base or os.path.basename(text.filepath) == base):
+            path = bpy.path.abspath(text.filepath)
+            if os.path.isfile(path):
+                return os.path.dirname(path)
+    return ""
+
+
 def resolve_export_path():
+    """Перша тека, в яку реально можна записати (ніколи не тека інсталяції Blender)."""
     args = script_args()
     if "--output" in args and args.index("--output") + 1 < len(args):
         return os.path.abspath(bpy.path.abspath(args[args.index("--output") + 1]))
-    if EXPORT_DIR:
-        folder = bpy.path.abspath(EXPORT_DIR)
-    elif bpy.data.filepath:
-        folder = os.path.dirname(bpy.data.filepath)
-    else:
-        script = globals().get("__file__", "")
-        folder = os.path.dirname(script) if script and os.path.isfile(script) else os.getcwd()
-    return os.path.join(os.path.abspath(folder), EXPORT_FILENAME)
+    home = os.path.expanduser("~")
+    candidates = [
+        bpy.path.abspath(EXPORT_DIR) if EXPORT_DIR else "",
+        os.path.dirname(bpy.data.filepath) if bpy.data.filepath else "",
+        script_dir(),
+        os.path.join(home, "Documents"),
+        home,
+        tempfile.gettempdir(),
+    ]
+    if EXPORT_DIR and not is_writable_dir(candidates[0]):
+        print(f"[SAO] EXPORT_DIR недоступна для запису: {candidates[0]}")
+    for folder in candidates:
+        if is_writable_dir(folder):
+            return os.path.join(os.path.abspath(folder), EXPORT_FILENAME)
+    raise RuntimeError("Не знайдено теки з правом запису для FBX — задайте EXPORT_DIR")
+
+
+def show_message(text, title="SAO Labyrinth", icon="INFO"):
+    """Спливне повідомлення в інтерфейсі Blender (у фоновому режимі — лише print)."""
+    print(f"[SAO] {text}")
+    if bpy.app.background or bpy.context.window_manager is None:
+        return
+    def draw(menu, _context):
+        menu.layout.label(text=text)
+    bpy.context.window_manager.popup_menu(draw, title=title, icon=icon)
 
 
 def export_fbx(path):
@@ -866,7 +911,7 @@ def export_fbx(path):
         embed_textures=False,
         batch_mode="OFF",
     )
-    print(f"[SAO] FBX експортовано: {path}")
+    show_message(f"FBX експортовано: {path}")
 
 
 # =============================================================================
