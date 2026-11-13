@@ -26,7 +26,8 @@ sao_boss_entrance_gate.py
 2. ``blender --background --python sao_boss_entrance_gate.py -- --export [шлях.fbx]``
 
 Аргументи після ``--``:
-    --export            експортувати меші у FBX (оптимізовано під Roblox)
+    --export            експортувати меші у FBX (увімкнено за замовчуванням)
+    --no-export         не створювати FBX
     --export-path PATH  шлях до FBX (за замовчуванням поруч із .blend або у temp)
 """
 
@@ -34,7 +35,6 @@ import math
 import os
 import random
 import sys
-import tempfile
 
 import bmesh
 import bpy
@@ -45,7 +45,7 @@ from mathutils import Matrix, Vector
 # ---------------------------------------------------------------------------
 
 TRI_BUDGET = 5000                 # ліміт трикутників на один об'єкт (Roblox)
-EXPORT_FBX = False                # можна ввімкнути тут або аргументом --export
+EXPORT_FBX = True                 # FBX для Roblox Studio створюється автоматично
 EXPORT_PATH = "//sao_boss_entrance_gate.fbx"
 RANDOM_SEED = 1                   # детермінована "потертість" підлоги та полум'я
 
@@ -805,7 +805,7 @@ def build_brazier(coll, name, side, rng):
     b.cyl((0.0, 0.0, 0.255), 0.56, 0.2, 0.17, 12, "embers")
     obj = b.finalize(coll, location=(side * BRAZIER_X, BRAZIER_Y, BRAZIER_Z))
 
-    # Окремий меш полум'я (Emission), дочірній до жаровні
+    # Окремий меш полум'я (Emission) над чашею жаровні
     f = MeshBuilder(name + "_Flame")
     flame_tongue(f, (0, 0, 0), 0.34, 1.15, (0.0, 0.0, 0.0), 1.4, rng, "flame")
     for k in range(3):
@@ -813,10 +813,8 @@ def build_brazier(coll, name, side, rng):
         d = Vector((math.cos(a), math.sin(a), 0.0))
         flame_tongue(f, d * 0.22, 0.2, rng.uniform(0.65, 0.9), d * 0.12, -1.2, rng, "flame")
     flame_tongue(f, (0, 0, 0.02), 0.18, 0.62, (0.0, 0.0, 0.0), 0.8, rng, "flame_core")
-    flame = f.finalize(coll)
-    flame.parent = obj
-    flame.matrix_parent_inverse = Matrix.Identity(4)
-    flame.location = (0.0, 0.0, 0.3)
+    # Без parent: пласка ієрархія надійніше імпортується в Roblox Studio.
+    flame = f.finalize(coll, location=(side * BRAZIER_X, BRAZIER_Y, BRAZIER_Z + 0.3))
     return obj, flame
 
 
@@ -946,7 +944,8 @@ def validate(objs, door_l, door_r):
 
 def export_fbx(objs, path):
     if not bpy.data.filepath and path.startswith("//"):
-        path = os.path.join(tempfile.gettempdir(), os.path.basename(path[2:]))
+        # .blend ще не збережено -> кладемо FBX у домашню папку (не в temp)
+        path = os.path.join(os.path.expanduser("~"), os.path.basename(path[2:]))
     path = bpy.path.abspath(path)
     view_layer = bpy.context.view_layer
     for o in view_layer.objects:
@@ -962,7 +961,7 @@ def export_fbx(objs, path):
         mesh_smooth_type='FACE',
         use_triangles=True,
         apply_unit_scale=True,
-        apply_scale_options='FBX_SCALE_NONE',
+        apply_scale_options='FBX_SCALE_ALL',   # масштаб 1, одиниці = метри
         bake_space_transform=True,      # обертання об'єктів лишаються (0, 0, 0)
         axis_forward='-Z',
         axis_up='Y',                    # Y-up як у Roblox -> вісь петель = Y
@@ -970,7 +969,7 @@ def export_fbx(objs, path):
         use_custom_props=True,
         path_mode='AUTO',
     )
-    print(f"\nFBX експортовано: {path}")
+    print(f"\nFBX для Roblox Studio збережено: {path}")
     return path
 
 
@@ -983,6 +982,8 @@ def parse_args():
     export, path = EXPORT_FBX, EXPORT_PATH
     if "--export" in argv:
         export = True
+    if "--no-export" in argv:
+        export = False
     if "--export-path" in argv:
         i = argv.index("--export-path")
         if i + 1 < len(argv):
