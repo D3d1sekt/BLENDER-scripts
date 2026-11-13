@@ -184,6 +184,18 @@ def clear_scene():
         for block in list(datablocks):
             if block.users == 0:
                 datablocks.remove(block)
+    # Після видалення об'єктів список view layer оновлюється ліниво — синхронізуємо.
+    bpy.context.view_layer.update()
+
+
+def deselect_all():
+    view_layer = bpy.context.view_layer
+    view_layer.update()
+    for obj in bpy.context.scene.objects:
+        if obj is None or view_layer.objects.get(obj.name) is None:
+            continue
+        obj.select_set(False)
+    view_layer.objects.active = None
 
 
 def setup_scene_units():
@@ -897,8 +909,7 @@ def main():
     if over:
         raise RuntimeError(f"Перевищено ліміт {MAX_TRIS_PER_OBJECT} трикутників: {over}")
 
-    for obj in bpy.context.view_layer.objects:
-        obj.select_set(False)
+    deselect_all()
 
     if AUTO_EXPORT and "--no-export" not in script_args():
         export_fbx(resolve_export_path())
